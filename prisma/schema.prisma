@@ -1,0 +1,181 @@
+// MemberBee data model.
+// One profile per consumer, which lets them join many loyalty clubs without
+// re-entering their details for each one.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+}
+
+// Profile fields a club can require before a member can join it.
+enum ProfileField {
+  PHONE
+  DATE_OF_BIRTH
+  GENDER
+  CITY
+  ADDRESS
+  ANNIVERSARY_DATE
+  CHILDREN
+}
+
+enum BenefitType {
+  DISCOUNT
+  POINTS
+  BIRTHDAY
+  GIFT
+  ONE_PLUS_ONE
+  FREE_SHIPPING
+  OTHER
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  role            Role      @default(USER)
+  firstName       String
+  lastName        String
+  phone           String?
+  dateOfBirth     DateTime? @db.Date
+  gender          Gender?
+  cityId          Int?
+  city            City?     @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  address         String?
+  anniversaryDate DateTime? @db.Date
+  marketingOptIn  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sessions    Session[]
+  children    Child[]
+  memberships Membership[]
+  interests   Category[]   @relation("UserInterests")
+}
+
+model Session {
+  // SHA-256 of the token stored in the browser cookie; the raw token never hits the DB.
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Child {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName   String
+  dateOfBirth DateTime @db.Date
+  gender      Gender?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model City {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  users User[]
+}
+
+model Category {
+  id        Int    @id @default(autoincrement())
+  slug      String @unique
+  name      String
+  sortOrder Int    @default(0)
+
+  clubs        Club[]
+  interestedIn User[] @relation("UserInterests")
+}
+
+model Club {
+  id             String         @id @default(cuid())
+  slug           String         @unique
+  name           String
+  tagline        String
+  description    String
+  terms          String         @default("")
+  websiteUrl     String?
+  logoUrl        String?
+  brandColor     String         @default("#f59e0b")
+  categoryId     Int
+  category       Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  requiredFields ProfileField[] @default([])
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  benefits    Benefit[]
+  memberships Membership[]
+
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model Benefit {
+  id          String      @id @default(cuid())
+  clubId      String
+  club        Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  type        BenefitType @default(OTHER)
+  title       String
+  description String      @default("")
+  validUntil  DateTime?   @db.Date
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+
+  @@index([clubId])
+}
+
+model Membership {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clubId       String
+  club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  memberNumber String   @unique
+  joinedAt     DateTime @default(now())
+
+  @@unique([userId, clubId])
+  @@index([clubId])
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String
+  userId    String?
+  handled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([handled, createdAt])
+}
+
+// Fixed-window counters used to throttle login, registration and contact attempts.
+model RateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+}

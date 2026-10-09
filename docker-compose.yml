@@ -1,0 +1,49 @@
+# Local production-like stack:
+#   cp .env.example .env   (then edit secrets)
+#   docker compose up -d db
+#   docker compose run --rm migrate
+#   docker compose up -d app
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: memberbee
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memberbee}
+      POSTGRES_DB: memberbee
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memberbee"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment:
+      DATABASE_URL: postgresql://memberbee:${POSTGRES_PASSWORD:-memberbee}@db:5432/memberbee?schema=public
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SEED_DEMO: ${SEED_DEMO:-false}
+      NODE_ENV: production
+    depends_on:
+      db: { condition: service_healthy }
+    profiles: ["tools"]
+
+  app:
+    build: { context: ., target: runner }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://memberbee:${POSTGRES_PASSWORD:-memberbee}@db:5432/memberbee?schema=public
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "3000:3000"
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:
